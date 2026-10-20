@@ -1,0 +1,148 @@
+from kfp import dsl, compiler
+from kfp.client import Client
+
+# ----------------------------------------------------------------------
+# STEP 1: Component - Fine-Tune Qwen LLM using QLoRA on NVIDIA GPU
+# ----------------------------------------------------------------------
+@dsl.component(
+    # Use PyTorch GPU image with CUDA support
+    base_image="quay.io/modh/runtime-images:pytorch-cda252a-cuda-py311",
+    packages_to_install=[
+        "torch",
+        "transformers",
+        "datasets",
+        "peft",
+        "bitsandbytes",
+        "accelerate",
+        "trl"
+    ]
+)
+def train_qwen_qlora_step(
+    model_id: str,
+    dataset_name: str,
+    output_dir: str,
+    epochs: int,
+    output_model: dsl.Output[dsl.Model]
+):
+    import os
+    import torch
+    from datasets import load_dataset
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        BitsAndBytesConfig,
+        TrainingArguments
+    )
+    from peft import LoraConfig, get_peft_model
+    from trl import SFTTrainer
+
+    print(f"--- Checking GPU Availability ---")
+    if torch.cuda.is_available():
+        print(f"GPU Detected: {torch.cuda.get_device_name(0)}")
+        print(f"Device Count: {torch.cuda.device_count()}")
+    else:
+        raise RuntimeError("No NVIDIA GPU detected! Ensure GPU tolerations/requests are set.")
+
+    # 1. 4-bit Quantization Config (QLoRA)
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.float16,
+    )
+
+    # 2. Load Base Model & Tokenizer
+    print(f"Loading base model: {model_id}")
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id,
+        quantization_config=bnb_config,
+        device_map="auto"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    tokenizer.pad_token = tokenizer.eos_token
+
+    # 3. Apply PEFT / LoRA Adapter
+    peft_config = LoraConfig(
+        r=8,
+        lora_alpha=16,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.05,
+        bias="none",
+        task_type="CAUSAL_LM"
+    )
+
+    # 4. Load Sample Dataset
+    print(f"Loading dataset: {dataset_name}")
+    dataset = load_dataset(dataset_name, split="train[:100]")  # Subsampled for rapid demonstration
+
+    # 5. Define Training Configuration
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        num_train_epochs=epochs,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=4,
+        learning_rate=2e-4,
+        fp16=True,
+        logging_steps=10,
+        save_strategy="no"
+    )
+
+    # 6. Execute Fine-Tuning
+    trainer = SFTTrainer(
+        model=model,
+        train_dataset=dataset,
+        peft_config=peft_config,
+        dataset_text_field="text",
+        max_seq_length=512,
+        tokenizer=tokenizer,
+        args=training_args,
+    )
+
+    print("--- Starting Fine-Tuning Job ---")
+    trainer.train()
+
+    # 7. Save Artifact Output path for KFP tracking
+    print(f"Saving LoRA adapter to KFP Output path: {output_model.path}")
+    trainer.model.save_pretrained(output_model.path)
+    tokenizer.save_pretrained(output_model.path)
+
+
+# ----------------------------------------------------------------------
+# STEP 2: Pipeline Definition with NVIDIA GPU Request
+# ----------------------------------------------------------------------
+@dsl.pipeline(
+    name="qwen-llm-finetuning-pipeline",
+    description="Fine-tune a Qwen LLM using QLoRA on an NVIDIA GPU cluster node."
+)
+def qwen_llm_pipeline(
+    model_id: str = "Qwen/Qwen2.5-0.5B-Instruct",
+    dataset_name: str = "imdb",
+    epochs: int = 1
+):
+    # Instantiate the training step
+    train_task = train_qwen_qlora_step(
+        model_id=model_id,
+        dataset_name=dataset_name,
+        output_dir="/tmp/qwen-output",
+        epochs=epochs
+    )
+
+    # CRITICAL FOR OPENSHIFT AI: Request 1x NVIDIA GPU resource
+    train_task.set_gpu_limit(1)  # Limits & Requests 1 nvidia.com/gpu
+    
+    # Request adequate CPU & Memory for model loading
+    train_task.set_cpu_limit("4")
+    train_task.set_memory_limit("16Gi")
+
+
+# ----------------------------------------------------------------------
+# STEP 3: Compile Pipeline to YAML
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    compiled_yaml = "qwen_llm_pipeline.yaml"
+    print(f"Compiling pipeline to {compiled_yaml}...")
+    compiler.Compiler().compile(
+        pipeline_func=qwen_llm_pipeline,
+        package_path=compiled_yaml
+    )
+    print("Compilation complete!")
+
