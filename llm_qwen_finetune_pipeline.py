@@ -4,38 +4,10 @@ from kfp.client import Client
 # ----------------------------------------------------------------------
 # STEP 1: Component - Fine-Tune Qwen LLM using QLoRA on NVIDIA GPU
 # ----------------------------------------------------------------------
-#@dsl.component(
-#    base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest",
-#    packages_to_install=["transformers", "datasets", "peft", "bitsandbytes", "accelerate", "trl"]
-#)
 @dsl.component(
-    base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest",
-    packages_to_install=[
-        "accelerate",
-        "bitsandbytes",
-        "datasets",
-        "numpy>=2.0.0",
-        "pandas>=2.2.2",
-        "peft",
-        "torch",
-        "transformers",
-        "trl"
-    ]
+    base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest"
+    # Note: packages_to_install is intentionally removed to handle it via subprocess below
 )
-#@dsl.component(
-#    # Use PyTorch GPU image with CUDA support
-#    base_image="quay.io/modh/runtime-images:pytorch-cda252a-cuda-py311",
-#    packages_to_install=[
-#        "torch",
-#        "transformers",
-#        "datasets",
-#        "peft",
-#        "bitsandbytes",
-#        "accelerate",
-#        "trl"
-#    ]
-#)
-
 def train_qwen_qlora_step(
     model_id: str,
     dataset_name: str,
@@ -43,8 +15,25 @@ def train_qwen_qlora_step(
     epochs: int,
     output_model: dsl.Output[dsl.Model]
 ):
+    import subprocess
+    import sys
+    
+    print("--- Purging mixed C-extensions and reinstalling dependencies ---")
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir",
+        "numpy==1.26.4", 
+        "pandas", 
+        "transformers", 
+        "datasets", 
+        "peft", 
+        "bitsandbytes", 
+        "accelerate", 
+        "trl"
+    ])
+
     import os
     import torch
+    import numpy as np
     from datasets import load_dataset
     from transformers import (
         AutoModelForCausalLM,
@@ -55,7 +44,9 @@ def train_qwen_qlora_step(
     from peft import LoraConfig, get_peft_model
     from trl import SFTTrainer
 
-    print(f"--- Checking GPU Availability ---")
+    print(f"NumPy cleanly initialized: {np.__version__}")
+    print("--- Checking GPU Availability ---")
+    
     if torch.cuda.is_available():
         print(f"GPU Detected: {torch.cuda.get_device_name(0)}")
         print(f"Device Count: {torch.cuda.device_count()}")
