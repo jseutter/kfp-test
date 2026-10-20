@@ -22,6 +22,7 @@ def train_qwen_qlora_step(
     subprocess.check_call([
         sys.executable, "-m", "pip", "install", "--force-reinstall", "--no-cache-dir",
         "numpy==1.26.4", 
+        "pyarrow<17.0.0",
         "pandas", 
         "transformers", 
         "datasets", 
