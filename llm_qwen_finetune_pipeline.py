@@ -136,6 +136,9 @@ def qwen_llm_pipeline(
         output_dir="/tmp/qwen-output",
         epochs=epochs
     )
+    # Data is saved as an additional layer in a folder injected into this script.
+    # A background pod will package and upload the files to S3.  View
+    # using Run, click the node, and open I/O tab
 
     # CRITICAL FOR OPENSHIFT AI: Request 1x NVIDIA GPU resource
     train_task.set_gpu_limit(1)  # Limits & Requests 1 nvidia.com/gpu
