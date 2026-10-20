@@ -142,6 +142,14 @@ def qwen_llm_pipeline(
 
     # CRITICAL FOR OPENSHIFT AI: Request 1x NVIDIA GPU resource
     train_task.set_gpu_limit(1)  # Limits & Requests 1 nvidia.com/gpu
+
+    # Example toleration
+    #gpu_toleration = V1Toleration(
+    #    key="nvidia.com/gpu", 
+    #    operator="Exists", 
+    #    effect="NoSchedule"
+    #)
+    #train_task.add_toleration(gpu_toleration)
     
     # Request adequate CPU & Memory for model loading
     train_task.set_cpu_limit("4")
