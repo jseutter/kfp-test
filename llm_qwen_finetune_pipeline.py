@@ -11,9 +11,15 @@ from kfp.client import Client
 @dsl.component(
     base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest",
     packages_to_install=[
+        "accelerate",
+        "bitsandbytes",
+        "datasets",
         "numpy<2.0.0",  # Pin to NumPy 1.x
         "pandas",
-        "transformers"
+        "peft",
+        "torch",
+        "transformers",
+        "trl"
     ]
 )
 #@dsl.component(
