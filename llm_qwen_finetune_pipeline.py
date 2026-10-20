@@ -14,8 +14,8 @@ from kfp.client import Client
         "accelerate",
         "bitsandbytes",
         "datasets",
-        "numpy<2.0.0",  # Pin to NumPy 1.x
-        "pandas",
+        "numpy>=2.0.0",
+        "pandas>=2.2.2",
         "peft",
         "torch",
         "transformers",
