@@ -4,11 +4,18 @@ from kfp.client import Client
 # ----------------------------------------------------------------------
 # STEP 1: Component - Fine-Tune Qwen LLM using QLoRA on NVIDIA GPU
 # ----------------------------------------------------------------------
+#@dsl.component(
+#    base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest",
+#    packages_to_install=["transformers", "datasets", "peft", "bitsandbytes", "accelerate", "trl"]
+#)
 @dsl.component(
     base_image="quay.io/opendatahub-contrib/workbench-images:cuda-runtime-pytorch-c9s-py311_2023c_latest",
-    packages_to_install=["transformers", "datasets", "peft", "bitsandbytes", "accelerate", "trl"]
+    packages_to_install=[
+        "numpy<2.0.0",  # Pin to NumPy 1.x
+        "pandas",
+        "transformers"
+    ]
 )
-
 #@dsl.component(
 #    # Use PyTorch GPU image with CUDA support
 #    base_image="quay.io/modh/runtime-images:pytorch-cda252a-cuda-py311",
