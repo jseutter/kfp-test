@@ -1,0 +1,79 @@
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-worker-gpu-lvm-var-lib
+  labels:
+    machineconfiguration.openshift.io/role: worker-gpu
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    systemd:
+      units:
+        - name: setup-lvm-var-lib.service
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Setup LVM Thin Pool and Volumes for /var/lib across multiple disks
+            DefaultDependencies=no
+            After=systemd-udev-settle.service local-fs-pre.target
+            Before=var-lib-containers.mount var-lib-kubelet.mount crio.service kubelet.service
+
+            [Service]
+            Type=oneshot
+            RemainAfterExit=yes
+            ExecStart=/bin/bash -c '\
+              DISKS=$(lsblk -dno NAME,TYPE | awk "$2==\"disk\" && $1!~\"nvme0n1\" {print \"/dev/\"$1}"); \
+              if [ -z "$DISKS" ]; then echo "No secondary disks found"; exit 0; fi; \
+              if ! vgs vg_node >/dev/null 2>&1; then \
+                vgcreate vg_node $DISKS; \
+              fi; \
+              if ! lvs vg_node/tp_system >/dev/null 2>&1; then \
+                lvcreate --type thin-pool -L 2T -n tp_system vg_node; \
+              fi; \
+              if ! lvs vg_node/lv_containers >/dev/null 2>&1; then \
+                lvcreate -V 2T --thin -n lv_containers vg_node/tp_system; \
+                mkfs.xfs -f /dev/vg_node/lv_containers; \
+              fi; \
+              if ! lvs vg_node/lv_kubelet >/dev/null 2>&1; then \
+                lvcreate -V 2T --thin -n lv_kubelet vg_node/tp_system; \
+                mkfs.xfs -f /dev/vg_node/lv_kubelet; \
+              fi'
+
+            [Install]
+            WantedBy=multi-user.target
+
+        - name: var-lib-containers.mount
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Mount LVM LV to /var/lib/containers
+            After=setup-lvm-var-lib.service
+            Before=crio.service
+
+            [Mount]
+            What=/dev/vg_node/lv_containers
+            Where=/var/lib/containers
+            Type=xfs
+            Options=defaults,pquota
+
+            [Install]
+            WantedBy=multi-user.target
+
+        - name: var-lib-kubelet.mount
+          enabled: true
+          contents: |
+            [Unit]
+            Description=Mount LVM LV to /var/lib/kubelet
+            After=setup-lvm-var-lib.service
+            Before=kubelet.service
+
+            [Mount]
+            What=/dev/vg_node/lv_kubelet
+            Where=/var/lib/kubelet
+            Type=xfs
+            Options=defaults,prjquota
+
+            [Install]
+            WantedBy=multi-user.target
+

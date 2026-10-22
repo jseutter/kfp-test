@@ -1,0 +1,16 @@
+apiVersion: lvm.topolvm.io/v1alpha1
+kind: LVMCluster
+metadata:
+  name: lvmcluster-node
+  namespace: openshift-storage
+spec:
+  storage:
+    deviceClasses:
+      - name: vg_node
+        default: true
+        thinPoolConfig:
+          name: tp_openshift_pvc
+          sizePercent: 100
+        nodeSelector:
+          node-role.kubernetes.io/worker-gpu: ""
+
